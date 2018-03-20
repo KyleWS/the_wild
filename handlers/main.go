@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
 
 const POST_FILE_ERROR = "error reading file from post request. Please try again or contact admin"
@@ -42,10 +45,41 @@ func PostFileHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer r.Body.Close()
-
 		// TODO: Make it so we hash critter files
 		// and only override an existing file if there was a change.
-		json.NewEncoder(w).Encode("hello")
+
+		// TODO: Parse received file, save it, return status of
+		// compiling it.
+		var buf bytes.Buffer
+		username := r.FormValue("username")
+		file, header, err := r.FormFile("uploadfile")
+		if err != nil {
+			fmt.Printf("error: %v\n", err)
+			http.Error(w, fmt.Sprintf("server had error parsing file from request: %v", err), http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+		name := strings.Split(header.Filename, ".")[0]
+		io.Copy(&buf, file)
+		dir := "uploads/" + username + "_" + name
+		os.Mkdir(dir, 0700)
+		f, err := os.OpenFile(dir+header.Filename, os.O_CREATE|os.O_WRONLY, 0700)
+		defer f.Close()
+		if _, err := f.Write(buf.Bytes()); err != nil {
+			http.Error(w, fmt.Sprintf("error saving file to disk %v", err), http.StatusInternalServerError)
+			return
+		}
+		f.Sync()
+		statusStruct := struct {
+			success  bool
+			filename string
+			err      string
+		}{
+			success:  false,
+			filename: header.Filename,
+			err:      "",
+		}
+		json.NewEncoder(w).Encode(statusStruct)
 		//https://astaxie.gitbooks.io/build-web-application-with-golang/en/04.5.html
 	}
 }
